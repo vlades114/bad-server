@@ -3,6 +3,16 @@ import { FilterQuery } from 'mongoose'
 import NotFoundError from '../errors/not-found-error'
 import Order from '../models/order'
 import User, { IUser } from '../models/user'
+import escapeRegExp from '../utils/escapeRegExp'
+import { asString, toDate, toNumber } from '../utils/query'
+
+const CUSTOMER_SORT_FIELDS = [
+    'createdAt',
+    'totalAmount',
+    'orderCount',
+    'name',
+    'lastOrderDate',
+]
 
 // TODO: Добавить guard admin
 // eslint-disable-next-line max-len
@@ -13,33 +23,24 @@ export const getCustomers = async (
     next: NextFunction
 ) => {
     try {
-        const {
-            page = 1,
-            limit = 10,
-            sortField = 'createdAt',
-            sortOrder = 'desc',
-            registrationDateFrom,
-            registrationDateTo,
-            lastOrderDateFrom,
-            lastOrderDateTo,
-            totalAmountFrom,
-            totalAmountTo,
-            orderCountFrom,
-            orderCountTo,
-            search,
-        } = req.query
+        const page = Math.max(toNumber(req.query.page) ?? 1, 1)
+        const limit = Math.max(toNumber(req.query.limit) ?? 10, 1)
+        const sortField = asString(req.query.sortField) ?? 'createdAt'
+        const sortOrder = asString(req.query.sortOrder) ?? 'desc'
 
         const filters: FilterQuery<Partial<IUser>> = {}
 
+        const registrationDateFrom = toDate(req.query.registrationDateFrom)
         if (registrationDateFrom) {
             filters.createdAt = {
                 ...filters.createdAt,
-                $gte: new Date(registrationDateFrom as string),
+                $gte: registrationDateFrom,
             }
         }
 
+        const registrationDateTo = toDate(req.query.registrationDateTo)
         if (registrationDateTo) {
-            const endOfDay = new Date(registrationDateTo as string)
+            const endOfDay = new Date(registrationDateTo)
             endOfDay.setHours(23, 59, 59, 999)
             filters.createdAt = {
                 ...filters.createdAt,
@@ -47,15 +48,17 @@ export const getCustomers = async (
             }
         }
 
+        const lastOrderDateFrom = toDate(req.query.lastOrderDateFrom)
         if (lastOrderDateFrom) {
             filters.lastOrderDate = {
                 ...filters.lastOrderDate,
-                $gte: new Date(lastOrderDateFrom as string),
+                $gte: lastOrderDateFrom,
             }
         }
 
+        const lastOrderDateTo = toDate(req.query.lastOrderDateTo)
         if (lastOrderDateTo) {
-            const endOfDay = new Date(lastOrderDateTo as string)
+            const endOfDay = new Date(lastOrderDateTo)
             endOfDay.setHours(23, 59, 59, 999)
             filters.lastOrderDate = {
                 ...filters.lastOrderDate,
@@ -63,36 +66,41 @@ export const getCustomers = async (
             }
         }
 
-        if (totalAmountFrom) {
+        const totalAmountFrom = toNumber(req.query.totalAmountFrom)
+        if (totalAmountFrom !== undefined) {
             filters.totalAmount = {
                 ...filters.totalAmount,
-                $gte: Number(totalAmountFrom),
+                $gte: totalAmountFrom,
             }
         }
 
-        if (totalAmountTo) {
+        const totalAmountTo = toNumber(req.query.totalAmountTo)
+        if (totalAmountTo !== undefined) {
             filters.totalAmount = {
                 ...filters.totalAmount,
-                $lte: Number(totalAmountTo),
+                $lte: totalAmountTo,
             }
         }
 
-        if (orderCountFrom) {
+        const orderCountFrom = toNumber(req.query.orderCountFrom)
+        if (orderCountFrom !== undefined) {
             filters.orderCount = {
                 ...filters.orderCount,
-                $gte: Number(orderCountFrom),
+                $gte: orderCountFrom,
             }
         }
 
-        if (orderCountTo) {
+        const orderCountTo = toNumber(req.query.orderCountTo)
+        if (orderCountTo !== undefined) {
             filters.orderCount = {
                 ...filters.orderCount,
-                $lte: Number(orderCountTo),
+                $lte: orderCountTo,
             }
         }
 
+        const search = asString(req.query.search)
         if (search) {
-            const searchRegex = new RegExp(search as string, 'i')
+            const searchRegex = new RegExp(escapeRegExp(search), 'i')
             const orders = await Order.find(
                 {
                     $or: [{ deliveryAddress: searchRegex }],
@@ -108,16 +116,19 @@ export const getCustomers = async (
             ]
         }
 
-        const sort: { [key: string]: any } = {}
+        const sort: { [key: string]: 1 | -1 } = {}
 
-        if (sortField && sortOrder) {
-            sort[sortField as string] = sortOrder === 'desc' ? -1 : 1
+        if (
+            CUSTOMER_SORT_FIELDS.includes(sortField) &&
+            (sortOrder === 'asc' || sortOrder === 'desc')
+        ) {
+            sort[sortField] = sortOrder === 'desc' ? -1 : 1
         }
 
         const options = {
             sort,
-            skip: (Number(page) - 1) * Number(limit),
-            limit: Number(limit),
+            skip: (page - 1) * limit,
+            limit,
         }
 
         const users = await User.find(filters, null, options).populate([
@@ -137,15 +148,15 @@ export const getCustomers = async (
         ])
 
         const totalUsers = await User.countDocuments(filters)
-        const totalPages = Math.ceil(totalUsers / Number(limit))
+        const totalPages = Math.ceil(totalUsers / limit)
 
         res.status(200).json({
             customers: users,
             pagination: {
                 totalUsers,
                 totalPages,
-                currentPage: Number(page),
-                pageSize: Number(limit),
+                currentPage: page,
+                pageSize: limit,
             },
         })
     } catch (error) {
@@ -179,11 +190,18 @@ export const updateCustomer = async (
     next: NextFunction
 ) => {
     try {
+        const { name, email, phone } = req.body
+        const updates: { name?: string; email?: string; phone?: string } = {}
+        if (name !== undefined) updates.name = name
+        if (email !== undefined) updates.email = email
+        if (phone !== undefined) updates.phone = phone
+
         const updatedUser = await User.findByIdAndUpdate(
             req.params.id,
-            req.body,
+            updates,
             {
                 new: true,
+                runValidators: true,
             }
         )
             .orFail(

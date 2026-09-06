@@ -3,9 +3,13 @@ import { FilterQuery, Error as MongooseError, Types } from 'mongoose'
 import sanitizeHtml from 'sanitize-html'
 import BadRequestError from '../errors/bad-request-error'
 import NotFoundError from '../errors/not-found-error'
-import Order, { IOrder } from '../models/order'
+import Order, { IOrder, StatusType } from '../models/order'
 import Product, { IProduct } from '../models/product'
 import User from '../models/user'
+import escapeRegExp from '../utils/escapeRegExp'
+import { asString, toDate, toNumber } from '../utils/query'
+
+const ORDER_SORT_FIELDS = ['createdAt', 'totalAmount', 'orderNumber', 'status']
 
 // eslint-disable-next-line max-len
 // GET /orders?page=2&limit=5&sort=totalAmount&order=desc&orderDateFrom=2024-07-01&orderDateTo=2024-08-01&status=delivering&totalAmountFrom=100&totalAmountTo=1000&search=%2B1
@@ -16,55 +20,47 @@ export const getOrders = async (
     next: NextFunction
 ) => {
     try {
-        const {
-            page = 1,
-            limit = 10,
-            sortField = 'createdAt',
-            sortOrder = 'desc',
-            status,
-            totalAmountFrom,
-            totalAmountTo,
-            orderDateFrom,
-            orderDateTo,
-            search,
-        } = req.query
+        const page = Math.max(toNumber(req.query.page) ?? 1, 1)
+        const limit = Math.max(toNumber(req.query.limit) ?? 10, 1)
+        const sortField = asString(req.query.sortField) ?? 'createdAt'
+        const sortOrder = asString(req.query.sortOrder) ?? 'desc'
 
         const filters: FilterQuery<Partial<IOrder>> = {}
 
-        if (status) {
-            if (typeof status === 'object') {
-                Object.assign(filters, status)
-            }
-            if (typeof status === 'string') {
-                filters.status = status
-            }
+        const status = asString(req.query.status)
+        if (status && Object.values(StatusType).includes(status as StatusType)) {
+            filters.status = status
         }
 
-        if (totalAmountFrom) {
+        const totalAmountFrom = toNumber(req.query.totalAmountFrom)
+        if (totalAmountFrom !== undefined) {
             filters.totalAmount = {
                 ...filters.totalAmount,
-                $gte: Number(totalAmountFrom),
+                $gte: totalAmountFrom,
             }
         }
 
-        if (totalAmountTo) {
+        const totalAmountTo = toNumber(req.query.totalAmountTo)
+        if (totalAmountTo !== undefined) {
             filters.totalAmount = {
                 ...filters.totalAmount,
-                $lte: Number(totalAmountTo),
+                $lte: totalAmountTo,
             }
         }
 
+        const orderDateFrom = toDate(req.query.orderDateFrom)
         if (orderDateFrom) {
             filters.createdAt = {
                 ...filters.createdAt,
-                $gte: new Date(orderDateFrom as string),
+                $gte: orderDateFrom,
             }
         }
 
+        const orderDateTo = toDate(req.query.orderDateTo)
         if (orderDateTo) {
             filters.createdAt = {
                 ...filters.createdAt,
-                $lte: new Date(orderDateTo as string),
+                $lte: orderDateTo,
             }
         }
 
@@ -90,8 +86,9 @@ export const getOrders = async (
             { $unwind: '$products' },
         ]
 
+        const search = asString(req.query.search)
         if (search) {
-            const searchRegex = new RegExp(search as string, 'i')
+            const searchRegex = new RegExp(escapeRegExp(search), 'i')
             const searchNumber = Number(search)
 
             const searchConditions: any[] = [{ 'products.title': searchRegex }]
@@ -109,16 +106,19 @@ export const getOrders = async (
             filters.$or = searchConditions
         }
 
-        const sort: { [key: string]: any } = {}
+        const sort: { [key: string]: 1 | -1 } = {}
 
-        if (sortField && sortOrder) {
-            sort[sortField as string] = sortOrder === 'desc' ? -1 : 1
+        if (
+            ORDER_SORT_FIELDS.includes(sortField) &&
+            (sortOrder === 'asc' || sortOrder === 'desc')
+        ) {
+            sort[sortField] = sortOrder === 'desc' ? -1 : 1
         }
 
         aggregatePipeline.push(
             { $sort: sort },
-            { $skip: (Number(page) - 1) * Number(limit) },
-            { $limit: Number(limit) },
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
             {
                 $group: {
                     _id: '$_id',
@@ -134,15 +134,15 @@ export const getOrders = async (
 
         const orders = await Order.aggregate(aggregatePipeline)
         const totalOrders = await Order.countDocuments(filters)
-        const totalPages = Math.ceil(totalOrders / Number(limit))
+        const totalPages = Math.ceil(totalOrders / limit)
 
         res.status(200).json({
             orders,
             pagination: {
                 totalOrders,
                 totalPages,
-                currentPage: Number(page),
-                pageSize: Number(limit),
+                currentPage: page,
+                pageSize: limit,
             },
         })
     } catch (error) {
@@ -157,10 +157,11 @@ export const getOrdersCurrentUser = async (
 ) => {
     try {
         const userId = res.locals.user._id
-        const { search, page = 1, limit = 5 } = req.query
+        const page = Math.max(toNumber(req.query.page) ?? 1, 1)
+        const limit = Math.max(toNumber(req.query.limit) ?? 5, 1)
         const options = {
-            skip: (Number(page) - 1) * Number(limit),
-            limit: Number(limit),
+            skip: (page - 1) * limit,
+            limit,
         }
 
         const user = await User.findById(userId)
@@ -184,9 +185,10 @@ export const getOrdersCurrentUser = async (
 
         let orders = user.orders as unknown as IOrder[]
 
+        const search = asString(req.query.search)
         if (search) {
             // если не экранировать то получаем Invalid regular expression: /+1/i: Nothing to repeat
-            const searchRegex = new RegExp(search as string, 'i')
+            const searchRegex = new RegExp(escapeRegExp(search), 'i')
             const searchNumber = Number(search)
             const products = await Product.find({ title: searchRegex })
             const productIds = products.map((product) => product._id)
@@ -206,7 +208,7 @@ export const getOrdersCurrentUser = async (
         }
 
         const totalOrders = orders.length
-        const totalPages = Math.ceil(totalOrders / Number(limit))
+        const totalPages = Math.ceil(totalOrders / limit)
 
         orders = orders.slice(options.skip, options.skip + options.limit)
 
@@ -215,8 +217,8 @@ export const getOrdersCurrentUser = async (
             pagination: {
                 totalOrders,
                 totalPages,
-                currentPage: Number(page),
-                pageSize: Number(limit),
+                currentPage: page,
+                pageSize: limit,
             },
         })
     } catch (error) {
