@@ -20,8 +20,8 @@ app.use(cors({ origin: ORIGIN_ALLOW, credentials: true }))
 
 app.use(serveStatic(path.join(__dirname, 'public')))
 
-app.use(urlencoded({ extended: true }))
-app.use(json())
+app.use(urlencoded({ extended: true, limit: '1mb', parameterLimit: 20 }))
+app.use(json({ limit: '1mb' }))
 
 app.use(routes)
 app.use(errors())
