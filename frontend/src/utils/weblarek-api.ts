@@ -33,6 +33,7 @@ export type ApiListResponse<Type> = {
 class Api {
     private readonly baseUrl: string
     protected options: RequestInit
+    private csrfTokenCache: string | null = null
 
     constructor(baseUrl: string, options: RequestInit = {}) {
         this.baseUrl = baseUrl
@@ -55,14 +56,33 @@ class Api {
 
     protected async request<T>(endpoint: string, options: RequestInit) {
         try {
+            const method = (options.method || 'GET').toUpperCase()
+            const headers = new Headers(options.headers)
+            if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+                headers.set('X-CSRF-Token', await this.getCsrfToken())
+            }
             const res = await fetch(`${this.baseUrl}${endpoint}`, {
                 ...this.options,
                 ...options,
+                headers,
+                credentials: 'include',
             })
             return await this.handleResponse<T>(res)
         } catch (error) {
             return Promise.reject(error)
         }
+    }
+
+    private getCsrfToken = async (): Promise<string> => {
+        if (this.csrfTokenCache) {
+            return this.csrfTokenCache
+        }
+        const { csrfToken } = await this.request<{ csrfToken: string }>(
+            '/auth/csrf-token',
+            { method: 'GET' }
+        )
+        this.csrfTokenCache = csrfToken
+        return csrfToken
     }
 
     private refreshToken = () => {
