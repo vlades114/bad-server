@@ -4,11 +4,13 @@ import {
     customersActions,
     customersSelector,
 } from '../../services/slice/customers'
+import { FiltersCustomers } from '../../services/slice/customers/type'
 import { fetchCustomersWithFilters } from '../../services/slice/customers/thunk'
 import { AppRoute } from '../../utils/constants'
 import Filter from '../filter'
 import styles from './admin.module.scss'
 import { customersFilterFields } from './helpers/customersFilterFields'
+import { FilterValues } from '../filter/helpers/types'
 
 export default function AdminFilterCustomers() {
     const navigate = useNavigate()
@@ -18,15 +20,16 @@ export default function AdminFilterCustomers() {
     const filterCustomersOption = useSelector(
         customersSelector.selectFilterOption
     )
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
 
-    const handleFilter = (filters: Record<string, any>) => {
-        dispatch(updateFilter({ ...filters }))
+    const handleFilter = (filters: FilterValues) => {
+        dispatch(updateFilter(filters as Partial<FiltersCustomers>))
         const queryParams: { [key: string]: string } = {}
         Object.entries(filters).forEach(([key, value]) => {
             if (value) {
                 queryParams[key] =
-                    typeof value === 'object' ? value.value : value.toString()
+                    typeof value === 'object'
+                        ? String(value.value)
+                        : value.toString()
             }
         })
         setSearchParams(queryParams)
