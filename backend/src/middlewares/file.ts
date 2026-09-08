@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
-import { Request, Express } from 'express'
+import { NextFunction, Request, Response, Express } from 'express'
 import multer, { FileFilterCallback } from 'multer'
-import { mkdirSync } from 'fs'
+import { mkdirSync, unlinkSync } from 'fs'
 import { extname, join } from 'path'
 
 type DestinationCallback = (error: Error | null, destination: string) => void
@@ -67,3 +67,26 @@ export default multer({
         parts: 20,
     },
 })
+
+export const checkMinFileSize = (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    const { file } = req
+
+    if (!file) {
+        return res.status(400).json({ message: 'Файл не загружен' })
+    }
+
+    if (file.size < 2 * 1024) {
+        try {
+            unlinkSync(file.path)
+        } catch {
+            // файл уже удалён — игнорируем
+        }
+        return res.status(400).json({ message: 'Файл слишком маленький' })
+    }
+
+    next()
+}
