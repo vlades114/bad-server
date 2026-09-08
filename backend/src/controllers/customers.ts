@@ -23,7 +23,10 @@ export const getCustomers = async (
 ) => {
     try {
         const page = Math.max(toNumber(req.query.page) ?? 1, 1)
-        const limit = Math.max(toNumber(req.query.limit) ?? 10, 1)
+        const limit = Math.min(
+            Math.max(toNumber(req.query.limit) ?? 10, 1),
+            10
+        )
         const sortField = asString(req.query.sortField) ?? 'createdAt'
         const sortOrder = asString(req.query.sortOrder) ?? 'desc'
 

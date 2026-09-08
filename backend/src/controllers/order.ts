@@ -21,14 +21,23 @@ export const getOrders = async (
 ) => {
     try {
         const page = Math.max(toNumber(req.query.page) ?? 1, 1)
-        const limit = Math.max(toNumber(req.query.limit) ?? 10, 1)
+        const limit = Math.min(
+            Math.max(toNumber(req.query.limit) ?? 10, 1),
+            10
+        )
         const sortField = asString(req.query.sortField) ?? 'createdAt'
         const sortOrder = asString(req.query.sortOrder) ?? 'desc'
 
         const filters: FilterQuery<Partial<IOrder>> = {}
 
-        const status = asString(req.query.status)
-        if (status && Object.values(StatusType).includes(status as StatusType)) {
+        if (req.query.status !== undefined) {
+            const status = asString(req.query.status)
+            if (
+                !status ||
+                !Object.values(StatusType).includes(status as StatusType)
+            ) {
+                return next(new BadRequestError('Некорректный статус заказа'))
+            }
             filters.status = status
         }
 
