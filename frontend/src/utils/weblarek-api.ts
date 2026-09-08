@@ -78,7 +78,7 @@ class Api {
             return this.csrfTokenCache
         }
         const { csrfToken } = await this.request<{ csrfToken: string }>(
-            '/csrf-token',
+            '/auth/csrf-token',
             { method: 'GET' }
         )
         this.csrfTokenCache = csrfToken

@@ -2,7 +2,6 @@ import { NextFunction, Request, Response, Router } from 'express'
 import NotFoundError from '../errors/not-found-error'
 
 import auth, { roleGuardMiddleware } from '../middlewares/auth'
-import csrfProtection from '../middlewares/csrf'
 import { Role } from '../models/user'
 import authRouter from './auth'
 import customerRouter from './customers'
@@ -11,10 +10,6 @@ import productRouter from './product'
 import uploadRouter from './upload'
 
 const router = Router()
-
-router.get('/csrf-token', csrfProtection, (req: Request, res: Response) => {
-    res.json({ csrfToken: req.csrfToken() })
-})
 
 router.use('/auth', authRouter)
 router.use('/product', productRouter)
